@@ -84,7 +84,7 @@ def get_dashboard_stats(categoria_id, usuario_id):
         SELECT a.id, a.nome,
                COUNT(DISTINCT q.id) as total_questoes,
                COUNT(DISTINCT r.questao_id) as total_respondidas,
-               SUM(CASE WHEN r.correta = 1 THEN 1 ELSE 0 END) as total_acertos
+               SUM(CASE WHEN r.correta = TRUE THEN 1 ELSE 0 END) as total_acertos
         FROM assuntos a
         LEFT JOIN questoes q ON a.id = q.assunto_id
         LEFT JOIN respostas r ON q.id = r.questao_id AND r.usuario_id = %s
