@@ -18,7 +18,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-def # init_db()  # DB já populado no Supabase:
+def init_db():
     conn = psycopg2.connect(SUPABASE_URL)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS categorias (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT UNIQUE)''')
