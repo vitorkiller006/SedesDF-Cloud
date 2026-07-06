@@ -179,6 +179,43 @@ def get_nome_assunto(assunto_id):
     conn.close()
     return row[0] if row else "Assunto"
 
+def get_todas_questoes(assunto_id):
+    conn = psycopg2.connect(SUPABASE_URL)
+    c = conn.cursor()
+    c.execute("SELECT id, enunciado, alternativas, resposta_correta, explicacoes FROM questoes WHERE assunto_id = %s ORDER BY id", (assunto_id,))
+    res = c.fetchall()
+    conn.close()
+    
+    lista = []
+    for r in res:
+        lista.append({
+            "id": r[0],
+            "enunciado": r[1],
+            "alternativas": json.loads(r[2]),
+            "resposta_correta": r[3],
+            "explicacoes_opcoes": json.loads(r[4])
+        })
+    return lista
+
+def atualizar_questao(questao_id, enunciado, alternativas, correta, explicacoes):
+    conn = psycopg2.connect(SUPABASE_URL)
+    c = conn.cursor()
+    c.execute("""
+        UPDATE questoes 
+        SET enunciado = %s, alternativas = %s, resposta_correta = %s, explicacoes = %s
+        WHERE id = %s
+    """, (enunciado, json.dumps(alternativas), correta, json.dumps(explicacoes), questao_id))
+    conn.commit()
+    conn.close()
+
+def deletar_questao(questao_id):
+    conn = psycopg2.connect(SUPABASE_URL)
+    c = conn.cursor()
+    c.execute("DELETE FROM respostas WHERE questao_id = %s", (questao_id,))
+    c.execute("DELETE FROM questoes WHERE id = %s", (questao_id,))
+    conn.commit()
+    conn.close()
+
 # -- ESTILIZAÇÃO LIGHT THEME (CSS) --
 def load_css():
     st.markdown("""
@@ -338,8 +375,8 @@ def gerar_questoes_ia(api_key, texto_base, assunto, num_questoes, modo_sem_pdf=F
     
     regras = f"""
     REGRAS CRÍTICAS DE GERAÇÃO:
-    1. Crie questões SEMPRE pedindo para o aluno assinalar a alternativa CORRETA.
-    2. PROIBIDO criar questões do tipo "Assinale a alternativa incorreta", "Qual a exceção?" ou "Todas estão corretas, exceto:". O gabarito deve sempre ser a única afirmação verdadeira.
+    1. Você pode criar questões pedindo a alternativa CORRETA ou a INCORRETA (exceção).
+    2. IMPORTANTE: Se o enunciado pedir a alternativa INCORRETA, o campo 'resposta_correta' no JSON deve OBRIGATORIAMENTE conter a letra (A, B, C, D ou E) dessa alternativa incorreta. O sistema usa este campo para validar o clique do aluno.
     3. Cada questão deve ter exatamente 5 alternativas (A, B, C, D, E).
     """
 
@@ -458,6 +495,9 @@ with st.sidebar:
         st.rerun()
     if st.button("✨ Alimentar Banco (Gerar)", use_container_width=True):
         st.session_state.current_page = "Gerar"
+        st.rerun()
+    if st.button("✏️ Revisar Questões", use_container_width=True):
+        st.session_state.current_page = "Revisar"
         st.rerun()
 
 # -- PÁGINA: DASHBOARD --
@@ -622,3 +662,78 @@ elif st.session_state.current_page == "Gerar":
                 if st.button("Ir para o Dashboard"):
                     st.session_state.current_page = "Dashboard"
                     st.rerun()
+
+# -- PÁGINA: REVISAR QUESTÕES --
+elif st.session_state.current_page == "Revisar":
+    st.markdown("""
+    <div class="app-header">
+        <h1>✏️ Revisão do Banco de Questões</h1>
+        <p>Edite enunciados, corrija gabaritos ou remova questões ruins</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    categorias = get_categorias()
+    cat_nomes = [c["nome"] for c in categorias]
+    cat_selecionada_nome = st.selectbox("1. Escolha a Área (Pilar):", cat_nomes, key="rev_cat")
+    
+    cat_id = next(c["id"] for c in categorias if c["nome"] == cat_selecionada_nome)
+    assuntos = get_assuntos(cat_id)
+    ass_nomes = [a["nome"] for a in assuntos]
+    ass_selecionado_nome = st.selectbox("2. Escolha o Assunto:", ass_nomes, key="rev_ass")
+    assunto_id = next(a["id"] for a in assuntos if a["nome"] == ass_selecionado_nome)
+    
+    st.markdown("---")
+    todas = get_todas_questoes(assunto_id)
+    if not todas:
+        st.info("Nenhuma questão encontrada para este assunto.")
+    else:
+        st.write(f"**Total de questões:** {len(todas)}")
+        for idx, q in enumerate(todas):
+            with st.expander(f"Questão {idx+1}: {q['enunciado'][:60]}..."):
+                with st.form(key=f"form_q_{q['id']}"):
+                    novo_enunciado = st.text_area("Enunciado", q["enunciado"], height=100)
+                    
+                    st.write("Alternativas:")
+                    letras = ["A", "B", "C", "D", "E"]
+                    novas_alts = []
+                    for i in range(5):
+                        alt_atual = q["alternativas"][i] if i < len(q["alternativas"]) else ""
+                        if alt_atual.startswith(letras[i] + ")"):
+                            alt_atual = alt_atual[3:].strip()
+                        elif alt_atual.startswith(letras[i] + " -"):
+                            alt_atual = alt_atual[4:].strip()
+                        elif alt_atual.startswith(letras[i] + "."):
+                            alt_atual = alt_atual[3:].strip()
+                            
+                        novo_txt = st.text_input(f"Letra {letras[i]}", alt_atual)
+                        novas_alts.append(f"{letras[i]}) {novo_txt}")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        correta_atual = q["resposta_correta"].upper().strip()
+                        if correta_atual not in letras: correta_atual = "A"
+                        nova_correta = st.selectbox("Gabarito Correto:", letras, index=letras.index(correta_atual))
+                    
+                    with col2:
+                        explicacoes = q.get("explicacoes_opcoes", {})
+                        if isinstance(explicacoes, dict):
+                            exp_texto = explicacoes.get(nova_correta, "")
+                        else:
+                            exp_texto = str(explicacoes)
+                        nova_exp = st.text_area("Explicação (opcional)", exp_texto, height=70)
+                    
+                    col_save, col_del = st.columns([1, 1])
+                    with col_save:
+                        if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
+                            novas_exp_dict = {}
+                            for l in letras:
+                                novas_exp_dict[l] = nova_exp if l == nova_correta else "Incorreta."
+                            atualizar_questao(q["id"], novo_enunciado, novas_alts, nova_correta, novas_exp_dict)
+                            st.success("Atualizada com sucesso!")
+                            st.rerun()
+                            
+                    with col_del:
+                        if st.form_submit_button("🗑️ Deletar Questão", use_container_width=True):
+                            deletar_questao(q["id"])
+                            st.warning("Questão apagada!")
+                            st.rerun()
