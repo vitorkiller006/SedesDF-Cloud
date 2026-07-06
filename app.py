@@ -160,6 +160,17 @@ def salvar_resposta(questao_id, resposta_dada, correta, usuario_id):
     conn.commit()
     conn.close()
 
+def resetar_progresso_assunto(assunto_id, usuario_id):
+    conn = psycopg2.connect(SUPABASE_URL)
+    c = conn.cursor()
+    c.execute("""
+        DELETE FROM respostas 
+        WHERE usuario_id = %s 
+        AND questao_id IN (SELECT id FROM questoes WHERE assunto_id = %s)
+    """, (usuario_id, assunto_id))
+    conn.commit()
+    conn.close()
+
 def get_nome_assunto(assunto_id):
     conn = psycopg2.connect(SUPABASE_URL)
     c = conn.cursor()
@@ -484,17 +495,20 @@ if st.session_state.current_page == "Dashboard":
                     st.markdown(render_svg_chart(s["nome"], s["total"], s["respondidas"], s["acertos"]), unsafe_allow_html=True)
                     
                     if s["respondidas"] < s["total"]:
-                        btn_text = "Continuar Estudando ➡️"
+                        if st.button("Continuar Estudando ➡️", key=f"btn_{s['id']}", use_container_width=True):
+                            st.session_state.current_page = "Quiz"
+                            st.session_state.quiz_assunto = s['id']
+                            st.session_state.questao_atual = get_proxima_questao(s['id'], st.session_state.logged_in_user)
+                            st.session_state.answered = False
+                            st.session_state.selected_option = None
+                            st.rerun()
                     else:
-                        btn_text = "Todas Respondidas ✅"
+                        st.button("Todas Respondidas ✅", key=f"btn_{s['id']}", disabled=True, use_container_width=True)
                         
-                    if st.button(btn_text, key=f"btn_{s['id']}", disabled=(s["respondidas"] >= s["total"])):
-                        st.session_state.current_page = "Quiz"
-                        st.session_state.quiz_assunto = s['id']
-                        st.session_state.questao_atual = get_proxima_questao(s['id'], st.session_state.logged_in_user)
-                        st.session_state.answered = False
-                        st.session_state.selected_option = None
-                        st.rerun()
+                    if s["respondidas"] > 0:
+                        if st.button("🔄 Refazer Questões", key=f"reset_{s['id']}", use_container_width=True):
+                            resetar_progresso_assunto(s['id'], st.session_state.logged_in_user)
+                            st.rerun()
 
 # -- PÁGINA: QUIZ --
 elif st.session_state.current_page == "Quiz":
@@ -513,6 +527,10 @@ elif st.session_state.current_page == "Quiz":
     q = st.session_state.questao_atual
     if not q:
         st.success("🎉 Você já respondeu todas as questões desse assunto! Volte ao painel e gere mais questões se desejar.")
+        if st.button("🔄 Refazer as questões desta matéria!"):
+            resetar_progresso_assunto(st.session_state.quiz_assunto, st.session_state.logged_in_user)
+            st.session_state.questao_atual = get_proxima_questao(st.session_state.quiz_assunto, st.session_state.logged_in_user)
+            st.rerun()
     else:
         st.markdown(f'<div class="question-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="question-text">{q["enunciado"]}</div>', unsafe_allow_html=True)
