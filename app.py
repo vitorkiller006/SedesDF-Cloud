@@ -335,11 +335,19 @@ def extrair_texto_smart(pdf_path, start_page, end_page):
 
 def gerar_questoes_ia(api_key, texto_base, assunto, num_questoes, modo_sem_pdf=False):
     client = genai.Client(api_key=api_key)
+    
+    regras = f"""
+    REGRAS CRÍTICAS DE GERAÇÃO:
+    1. Crie questões SEMPRE pedindo para o aluno assinalar a alternativa CORRETA.
+    2. PROIBIDO criar questões do tipo "Assinale a alternativa incorreta", "Qual a exceção?" ou "Todas estão corretas, exceto:". O gabarito deve sempre ser a única afirmação verdadeira.
+    3. Cada questão deve ter exatamente 5 alternativas (A, B, C, D, E).
+    """
+
     if modo_sem_pdf:
-        prompt = f"""Você é um especialista em Concursos Públicos da banca Quadrix. Elabore {num_questoes} questões inéditas sobre o assunto: "{assunto}". Cada questão deve ter 5 alternativas com apenas 1 correta."""
+        prompt = f"""Você é um especialista em Concursos Públicos da banca Quadrix. Elabore {num_questoes} questões inéditas sobre o assunto: "{assunto}". {regras}"""
         conteudo = [prompt]
     else:
-        prompt = f"""Com base EXCLUSIVAMENTE no texto fornecido, elabore {num_questoes} questões da banca Quadrix inéditas com foco no assunto: "{assunto}". Cada questão deve ter 5 alternativas com apenas 1 correta."""
+        prompt = f"""Com base EXCLUSIVAMENTE no texto fornecido, elabore {num_questoes} questões da banca Quadrix inéditas com foco no assunto: "{assunto}". {regras}"""
         conteudo = [prompt, texto_base]
         
     try:
