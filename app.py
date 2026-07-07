@@ -7,6 +7,7 @@ import fitz  # PyMuPDF
 from google import genai
 from google.genai import types
 from seed_data import ESTRUTURA_ASSUNTOS
+import extra_streamlit_components as stx
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 
@@ -424,6 +425,8 @@ def gerar_questoes_ia(api_key, texto_base, assunto, num_questoes, modo_sem_pdf=F
         return None
 
 # -- ESTADO GLOBAL --
+cookie_manager = stx.CookieManager()
+
 if 'logged_in_user' not in st.session_state:
     st.session_state.logged_in_user = None
     st.session_state.logged_in_username = None
@@ -437,17 +440,24 @@ if 'questao_atual' not in st.session_state: st.session_state.questao_atual = Non
 
 load_css()
 
-# -- TELA DE LOGIN --
+# Tenta carregar do cookie primeiro (se ainda não carregou a página e não leu, os cookies vão ser recarregados e na próxima rodada entram)
 if not st.session_state.logged_in_user:
-    if "uid" in st.query_params and "user" in st.query_params:
+    cookie_uid = cookie_manager.get("uid")
+    cookie_user = cookie_manager.get("user")
+    if cookie_uid and cookie_user:
+        st.session_state.logged_in_user = int(cookie_uid)
+        st.session_state.logged_in_username = cookie_user
+    elif "uid" in st.query_params and "user" in st.query_params:
         st.session_state.logged_in_user = int(st.query_params["uid"])
         st.session_state.logged_in_username = st.query_params["user"]
-        st.rerun()
 
+# -- TELA DE LOGIN --
+if not st.session_state.logged_in_user:
     st.markdown('<div class="login-box">', unsafe_allow_html=True)
     st.markdown("<h2 style='text-align: center; color: #2563eb;'>📚 SEDES DF - Login</h2>", unsafe_allow_html=True)
     login_input = st.text_input("Usuário")
     senha_input = st.text_input("Senha", type="password")
+    lembrar_me = st.checkbox("Lembrar de mim neste dispositivo", value=True)
     
     if st.button("Entrar no Sistema", use_container_width=True):
         user = login_user(login_input.lower().strip(), senha_input.strip())
@@ -456,6 +466,9 @@ if not st.session_state.logged_in_user:
             st.session_state.logged_in_username = user[1].capitalize()
             st.query_params["uid"] = str(user[0])
             st.query_params["user"] = user[1].capitalize()
+            if lembrar_me:
+                cookie_manager.set("uid", str(user[0]), key="set_uid")
+                cookie_manager.set("user", user[1].capitalize(), key="set_user")
             st.rerun()
         else:
             st.error("Usuário ou senha incorretos.")
@@ -469,6 +482,8 @@ with st.sidebar:
         st.session_state.logged_in_user = None
         st.session_state.logged_in_username = None
         st.query_params.clear()
+        cookie_manager.delete("uid")
+        cookie_manager.delete("user")
         st.rerun()
         
     st.markdown("---")
