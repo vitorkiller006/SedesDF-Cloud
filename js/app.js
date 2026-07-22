@@ -140,6 +140,14 @@ const app = {
         }
     },
 
+    showTopics() {
+        if (this.currentCategory && this.currentCategory.id) {
+            this.loadTopics(this.currentCategory.id, this.currentCategory.nome);
+        } else {
+            this.showCategories();
+        }
+    },
+
     async loadTopics(catId, catNome) {
         this.currentCategory = { id: catId, nome: catNome };
         this.currentAssunto = null;
