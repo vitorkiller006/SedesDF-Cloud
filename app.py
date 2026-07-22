@@ -117,16 +117,22 @@ def salvar_questoes_db(assunto_id, questoes_list):
     conn.commit()
     conn.close()
 
-def get_proxima_questao(assunto_id, usuario_id):
+def get_lista_questoes_assunto(assunto_id, usuario_id):
     conn = psycopg2.connect(SUPABASE_URL)
     c = conn.cursor()
-    query = """
-        SELECT id, enunciado, alternativas, resposta_correta, explicacoes
-        FROM questoes
-        WHERE assunto_id = %s AND id NOT IN (SELECT questao_id FROM respostas WHERE usuario_id = %s)
-        LIMIT 1
-    """
-    c.execute(query, (assunto_id, usuario_id))
+    c.execute("SELECT id FROM questoes WHERE assunto_id = %s ORDER BY id", (assunto_id,))
+    questoes = [r[0] for r in c.fetchall()]
+    
+    c.execute("SELECT questao_id FROM respostas WHERE usuario_id = %s", (usuario_id,))
+    respondidas = {r[0] for r in c.fetchall()}
+    conn.close()
+    
+    return questoes, respondidas
+
+def get_questao_por_id(questao_id):
+    conn = psycopg2.connect(SUPABASE_URL)
+    c = conn.cursor()
+    c.execute("SELECT id, enunciado, alternativas, resposta_correta, explicacoes FROM questoes WHERE id = %s", (questao_id,))
     row = c.fetchone()
     conn.close()
     
@@ -159,6 +165,16 @@ def salvar_resposta(questao_id, resposta_dada, correta, usuario_id):
               (questao_id, resposta_dada, correta, usuario_id))
     conn.commit()
     conn.close()
+
+def get_resposta_usuario(questao_id, usuario_id):
+    conn = psycopg2.connect(SUPABASE_URL)
+    c = conn.cursor()
+    c.execute("SELECT resposta_dada, correta FROM respostas WHERE questao_id = %s AND usuario_id = %s LIMIT 1", (questao_id, usuario_id))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {"resposta_dada": row[0], "correta": row[1]}
+    return None
 
 def resetar_progresso_assunto(assunto_id, usuario_id):
     conn = psycopg2.connect(SUPABASE_URL)
@@ -431,9 +447,10 @@ if 'logged_in_user' not in st.session_state:
 if 'current_page' not in st.session_state: st.session_state.current_page = "Dashboard"
 if 'view_category' not in st.session_state: st.session_state.view_category = None
 if 'quiz_assunto' not in st.session_state: st.session_state.quiz_assunto = None
-if 'answered' not in st.session_state: st.session_state.answered = False
-if 'selected_option' not in st.session_state: st.session_state.selected_option = None
 if 'questao_atual' not in st.session_state: st.session_state.questao_atual = None
+if 'q_index' not in st.session_state: st.session_state.q_index = 0
+if 'lista_questoes' not in st.session_state: st.session_state.lista_questoes = []
+if 'set_respondidas' not in st.session_state: st.session_state.set_respondidas = set()
 
 load_css()
 
@@ -546,9 +563,22 @@ if st.session_state.current_page == "Dashboard":
                         if st.button("Continuar Estudando ➡️", key=f"btn_{s['id']}", use_container_width=True):
                             st.session_state.current_page = "Quiz"
                             st.session_state.quiz_assunto = s['id']
-                            st.session_state.questao_atual = get_proxima_questao(s['id'], st.session_state.logged_in_user)
-                            st.session_state.answered = False
-                            st.session_state.selected_option = None
+                            questoes, respondidas = get_lista_questoes_assunto(s['id'], st.session_state.logged_in_user)
+                            st.session_state.lista_questoes = questoes
+                            st.session_state.set_respondidas = respondidas
+                            
+                            first_unanswered = 0
+                            for idx, q_id in enumerate(questoes):
+                                if q_id not in respondidas:
+                                    first_unanswered = idx
+                                    break
+                            
+                            st.session_state.q_index = first_unanswered
+                            if questoes:
+                                st.session_state.questao_atual = get_questao_por_id(questoes[first_unanswered])
+                            else:
+                                st.session_state.questao_atual = None
+                                
                             st.rerun()
                     else:
                         st.button("Todas Respondidas ✅", key=f"btn_{s['id']}", disabled=True, use_container_width=True)
@@ -574,25 +604,28 @@ elif st.session_state.current_page == "Quiz":
         
     q = st.session_state.questao_atual
     if not q:
-        st.success("🎉 Você já respondeu todas as questões desse assunto! Volte ao painel e gere mais questões se desejar.")
-        if st.button("🔄 Refazer as questões desta matéria!"):
-            resetar_progresso_assunto(st.session_state.quiz_assunto, st.session_state.logged_in_user)
-            st.session_state.questao_atual = get_proxima_questao(st.session_state.quiz_assunto, st.session_state.logged_in_user)
-            st.rerun()
+        st.info("Nenhuma questão encontrada para este assunto.")
     else:
+        total_q = len(st.session_state.lista_questoes)
+        atual_q = st.session_state.q_index + 1
+        st.markdown(f"**Progresso:** Questão {atual_q} de {total_q}")
+        st.progress(atual_q / total_q)
+        
         st.markdown(f'<div class="question-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="question-text">{q["enunciado"]}</div>', unsafe_allow_html=True)
         
-        if not st.session_state.answered:
-            letra_resposta = st.radio("Selecione uma alternativa:", q["alternativas"], key=f"radio_quiz")
-            if st.button("✅ Confirmar Resposta"):
-                st.session_state.selected_option = letra_resposta[0]
-                correta = (letra_resposta[0] == q["resposta_correta"].upper())
-                salvar_resposta(q["id"], letra_resposta[0], correta, st.session_state.logged_in_user)
-                st.session_state.answered = True
+        resposta_salva = get_resposta_usuario(q["id"], st.session_state.logged_in_user)
+        
+        if not resposta_salva:
+            letra_resposta = st.radio("Selecione uma alternativa:", q["alternativas"], key=f"radio_quiz_{q['id']}")
+            if st.button("✅ Confirmar Resposta", type="primary"):
+                selecionada = letra_resposta[0]
+                correta = (selecionada == q["resposta_correta"].upper())
+                salvar_resposta(q["id"], selecionada, correta, st.session_state.logged_in_user)
+                st.session_state.set_respondidas.add(q["id"])
                 st.rerun()
         else:
-            selecionada = st.session_state.selected_option
+            selecionada = resposta_salva["resposta_dada"]
             correta = q["resposta_correta"].upper()
             if selecionada == correta: st.success("🎉 Muito bem! Você acertou.")
             else: st.error(f"❌ Que pena, você errou. O gabarito correto é a letra {correta}.")
@@ -608,13 +641,24 @@ elif st.session_state.current_page == "Quiz":
                     <div class="alt-explanation">{explicacao_texto}</div>
                 </div>
                 """, unsafe_allow_html=True)
-            
-            if st.button("Próxima Questão ➡️"):
-                st.session_state.questao_atual = get_proxima_questao(st.session_state.quiz_assunto, st.session_state.logged_in_user)
-                st.session_state.answered = False
-                st.session_state.selected_option = None
-                st.rerun()
+                
         st.markdown('</div>', unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col1:
+            if st.session_state.q_index > 0:
+                if st.button("⬅️ Anterior", use_container_width=True):
+                    st.session_state.q_index -= 1
+                    novo_id = st.session_state.lista_questoes[st.session_state.q_index]
+                    st.session_state.questao_atual = get_questao_por_id(novo_id)
+                    st.rerun()
+        with col3:
+            if st.session_state.q_index < len(st.session_state.lista_questoes) - 1:
+                if st.button("Próxima ➡️", use_container_width=True):
+                    st.session_state.q_index += 1
+                    novo_id = st.session_state.lista_questoes[st.session_state.q_index]
+                    st.session_state.questao_atual = get_questao_por_id(novo_id)
+                    st.rerun()
 
 # -- PÁGINA: GERAR --
 elif st.session_state.current_page == "Gerar":
