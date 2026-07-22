@@ -624,7 +624,8 @@ if st.session_state.current_page == "Dashboard":
                                 st.session_state.questao_atual = get_questao_por_id(questoes[first_unanswered])
                             else:
                                 st.session_state.questao_atual = None
-                                
+                            
+                            sync_url()
                             st.rerun()
                     else:
                         st.button("Todas Respondidas ✅", key=f"btn_{s['id']}", disabled=True, use_container_width=True)
@@ -667,6 +668,11 @@ elif st.session_state.current_page == "Quiz":
         st.markdown(f"**Progresso:** Questão {atual_q} de {total_q}")
         st.progress(atual_q / total_q)
         
+        with st.expander("🔗 Link Direto desta Questão (Salvar/Favoritar)"):
+            link_direto = f"https://sedesdf-cloud.streamlit.app/?uid={st.session_state.logged_in_user}&user={st.session_state.logged_in_username}&page=Quiz&assunto={st.session_state.quiz_assunto}&q={atual_q}"
+            st.code(link_direto, language="text")
+            st.caption("👆 Copie o link acima ou adicione aos Favoritos do seu celular para voltar direto a esta questão a qualquer momento!")
+
         st.markdown(f'<div class="question-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="question-text">{q["enunciado"]}</div>', unsafe_allow_html=True)
         
