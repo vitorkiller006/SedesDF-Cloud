@@ -439,6 +439,24 @@ def gerar_questoes_ia(api_key, texto_base, assunto, num_questoes, modo_sem_pdf=F
         st.error(f"Erro na API: {e}")
         return None
 
+# -- HELPER SYNC URL --
+def sync_url():
+    if not st.session_state.logged_in_user:
+        return
+    st.query_params["uid"] = str(st.session_state.logged_in_user)
+    st.query_params["user"] = str(st.session_state.logged_in_username)
+    st.query_params["page"] = str(st.session_state.current_page)
+    
+    if st.session_state.current_page == "Quiz" and st.session_state.quiz_assunto:
+        st.query_params["assunto"] = str(st.session_state.quiz_assunto)
+        st.query_params["q"] = str(st.session_state.q_index + 1)
+        if st.session_state.questao_atual:
+            st.query_params["qid"] = str(st.session_state.questao_atual["id"])
+    else:
+        for k in ["assunto", "q", "qid"]:
+            if k in st.query_params:
+                del st.query_params[k]
+
 # -- ESTADO GLOBAL --
 if 'logged_in_user' not in st.session_state:
     st.session_state.logged_in_user = None
@@ -471,13 +489,41 @@ if not st.session_state.logged_in_user:
         if user:
             st.session_state.logged_in_user = user[0]
             st.session_state.logged_in_username = user[1].capitalize()
-            st.query_params["uid"] = str(user[0])
-            st.query_params["user"] = user[1].capitalize()
+            sync_url()
             st.rerun()
         else:
             st.error("Usuário ou senha incorretos.")
     st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
+
+# -- RESTAURAÇÃO DE NAVEGAÇÃO VIA URL SE LOGADO --
+if st.session_state.logged_in_user:
+    if "page" in st.query_params and st.session_state.current_page != st.query_params["page"]:
+        st.session_state.current_page = st.query_params["page"]
+        
+    if st.session_state.current_page == "Quiz" and "assunto" in st.query_params and not st.session_state.questao_atual:
+        try:
+            assunto_id_url = int(st.query_params["assunto"])
+            st.session_state.quiz_assunto = assunto_id_url
+            questoes, respondidas = get_lista_questoes_assunto(assunto_id_url, st.session_state.logged_in_user)
+            st.session_state.lista_questoes = questoes
+            st.session_state.set_respondidas = respondidas
+            
+            if "q" in st.query_params:
+                q_num = int(st.query_params["q"]) - 1
+                if 0 <= q_num < len(questoes):
+                    st.session_state.q_index = q_num
+            elif "qid" in st.query_params:
+                qid_url = int(st.query_params["qid"])
+                if qid_url in questoes:
+                    st.session_state.q_index = questoes.index(qid_url)
+                    
+            if questoes and 0 <= st.session_state.q_index < len(questoes):
+                st.session_state.questao_atual = get_questao_por_id(questoes[st.session_state.q_index])
+        except Exception:
+            pass
+
+    sync_url()
 
 # -- SIDEBAR NAVEGAÇÃO --
 with st.sidebar:
@@ -598,9 +644,19 @@ elif st.session_state.current_page == "Quiz":
     </div>
     """, unsafe_allow_html=True)
     
-    if st.button("⬅️ Voltar ao Painel"):
-        st.session_state.current_page = "Dashboard"
-        st.rerun()
+    col1_head, col2_head = st.columns([3, 1])
+    with col1_head:
+        if st.button("⬅️ Voltar ao Painel"):
+            st.session_state.current_page = "Dashboard"
+            st.session_state.quiz_assunto = None
+            st.session_state.questao_atual = None
+            sync_url()
+            st.rerun()
+    with col2_head:
+        if st.session_state.questao_atual:
+            if st.button("🔗 Copiar Link Direto", use_container_width=True, help="Sua URL já está atualizada na barra do navegador! Clique para salvar o link exato."):
+                sync_url()
+                st.toast("📌 A barra do navegador contém o link exato desta questão! Salve nos favoritos ou copie.")
         
     q = st.session_state.questao_atual
     if not q:
@@ -623,6 +679,7 @@ elif st.session_state.current_page == "Quiz":
                 correta = (selecionada == q["resposta_correta"].upper())
                 salvar_resposta(q["id"], selecionada, correta, st.session_state.logged_in_user)
                 st.session_state.set_respondidas.add(q["id"])
+                sync_url()
                 st.rerun()
         else:
             selecionada = resposta_salva["resposta_dada"]
@@ -651,6 +708,7 @@ elif st.session_state.current_page == "Quiz":
                     st.session_state.q_index -= 1
                     novo_id = st.session_state.lista_questoes[st.session_state.q_index]
                     st.session_state.questao_atual = get_questao_por_id(novo_id)
+                    sync_url()
                     st.rerun()
         with col3:
             if st.session_state.q_index < len(st.session_state.lista_questoes) - 1:
@@ -658,6 +716,7 @@ elif st.session_state.current_page == "Quiz":
                     st.session_state.q_index += 1
                     novo_id = st.session_state.lista_questoes[st.session_state.q_index]
                     st.session_state.questao_atual = get_questao_por_id(novo_id)
+                    sync_url()
                     st.rerun()
 
 # -- PÁGINA: GERAR --
