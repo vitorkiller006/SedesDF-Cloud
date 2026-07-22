@@ -19,6 +19,9 @@ def clean_json_res(data):
     return data
 
 class handler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass
+
     def _send_json(self, data, status=200):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -37,6 +40,31 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        
+        # Serve static files fallback if Vercel routes root or static assets to api/index.py
+        if parsed.path in ['/', '/index.html']:
+            try:
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.end_headers()
+                with open('index.html', 'rb') as f:
+                    self.wfile.write(f.read())
+                return
+            except Exception:
+                pass
+        elif parsed.path.startswith('/css/') or parsed.path.startswith('/js/') or parsed.path == '/manifest.json':
+            try:
+                rel_path = parsed.path.lstrip('/')
+                mime = 'text/css' if rel_path.endswith('.css') else ('application/javascript' if rel_path.endswith('.js') else 'application/json')
+                self.send_response(200)
+                self.send_header('Content-Type', f'{mime}; charset=utf-8')
+                self.end_headers()
+                with open(rel_path, 'rb') as f:
+                    self.wfile.write(f.read())
+                return
+            except Exception:
+                pass
+
         params = parse_qs(parsed.query)
         action = params.get('action', [''])[0]
 
