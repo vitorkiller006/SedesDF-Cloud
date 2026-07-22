@@ -41,23 +41,14 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         
-        # Serve static files fallback if Vercel routes root or static assets to api/index.py
-        if parsed.path in ['/', '/index.html']:
-            try:
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/html; charset=utf-8')
-                self.end_headers()
-                with open('index.html', 'rb') as f:
-                    self.wfile.write(f.read())
-                return
-            except Exception:
-                pass
-        elif parsed.path.startswith('/css/') or parsed.path.startswith('/js/') or parsed.path == '/manifest.json':
+        # Serve static assets if Vercel routes css/js/manifest to function
+        if parsed.path.startswith('/css/') or parsed.path.startswith('/js/') or parsed.path == '/manifest.json':
             try:
                 rel_path = parsed.path.lstrip('/')
                 mime = 'text/css' if rel_path.endswith('.css') else ('application/javascript' if rel_path.endswith('.js') else 'application/json')
                 self.send_response(200)
                 self.send_header('Content-Type', f'{mime}; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 with open(rel_path, 'rb') as f:
                     self.wfile.write(f.read())
@@ -67,6 +58,20 @@ class handler(BaseHTTPRequestHandler):
 
         params = parse_qs(parsed.query)
         action = params.get('action', [''])[0]
+
+        # If no action is specified (root page request), serve index.html
+        if not action or action == 'html':
+            try:
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                with open('index.html', 'rb') as f:
+                    self.wfile.write(f.read())
+                return
+            except Exception as e:
+                self._send_json({"success": False, "error": str(e)}, status=500)
+                return
 
         try:
             conn = get_db()
