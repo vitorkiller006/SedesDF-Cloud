@@ -73,9 +73,27 @@ const app = {
         });
     },
 
-    showUserBar() {
+    async showUserBar() {
         document.getElementById('user-bar').style.display = 'flex';
         document.getElementById('user-name-display').innerText = this.user.name;
+        this.loadGlobalStats();
+    },
+
+    async loadGlobalStats() {
+        if (!this.user) return;
+        try {
+            const res = await fetch(`/api/index?action=stats_geral&usuario_id=${this.user.id}`);
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('stat-respondidas').innerText = data.total_respondidas;
+                document.getElementById('stat-total').innerText = data.total_questoes;
+                const pct = data.total_questoes > 0 ? Math.round((data.total_respondidas / data.total_questoes) * 100) : 0;
+                document.getElementById('stat-percent').innerText = `${pct}%`;
+                document.getElementById('stat-acertos').innerText = data.total_acertos;
+            }
+        } catch (err) {
+            console.error(err);
+        }
     },
 
     logout() {
@@ -315,6 +333,7 @@ const app = {
             const data = await res.json();
             if (data.success) {
                 q.resposta_usuario = { resposta_dada: letra, correta: data.correta };
+                this.loadGlobalStats();
                 this.renderQuestion();
             }
         } catch (err) {

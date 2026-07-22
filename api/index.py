@@ -77,7 +77,20 @@ class handler(BaseHTTPRequestHandler):
             conn = get_db()
             cursor = conn.cursor()
 
-            if action == 'login':
+            if action == 'stats_geral':
+                usuario_id = int(params.get('usuario_id', [0])[0])
+                cursor.execute("SELECT COUNT(*) FROM questoes;")
+                total_q = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(DISTINCT questao_id), SUM(CASE WHEN correta = TRUE THEN 1 ELSE 0 END) FROM respostas WHERE usuario_id = %s;", (usuario_id,))
+                r = cursor.fetchone()
+                respondidas = r[0] if r and r[0] else 0
+                acertos = r[1] if r and r[1] else 0
+                cursor.close()
+                conn.close()
+                self._send_json({"success": True, "total_questoes": total_q, "total_respondidas": respondidas, "total_acertos": acertos})
+                return
+
+            elif action == 'login':
                 login = params.get('login', [''])[0].lower().strip()
                 senha = params.get('senha', [''])[0].strip()
                 cursor.execute("SELECT id, login FROM usuarios WHERE login = %s AND senha = %s", (login, senha))
